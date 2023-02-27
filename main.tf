@@ -32,33 +32,57 @@ resource "aws_security_group" "rabbitmq" {
 //  data           = ""
 //}
 
+// We moved from service to ec2 node for rabbitmq , because our app does not support it.
 
-resource "aws_mq_broker" "rabbitmq" {
-  broker_name        = "${var.env}-rabbitmq"
-  deployment_mode    = var.deployment_mode
-  engine_type        = var.engine_type
-  engine_version     = var.engine_version
-  host_instance_type = var.host_instance_type
-  security_groups    = [aws_security_group.rabbitmq.id]
-  subnet_ids         = var.deployment_mode == "SINGLE_INSTANCE" ? [var.subnet_ids[0]] : var.subnet_ids
+#resource "aws_mq_broker" "rabbitmq" {
+#  broker_name        = "${var.env}-rabbitmq"
+#  deployment_mode    = var.deployment_mode
+#  engine_type        = var.engine_type
+#  engine_version     = var.engine_version
+#  host_instance_type = var.host_instance_type
+#  security_groups    = [aws_security_group.rabbitmq.id]
+#  subnet_ids         = var.deployment_mode == "SINGLE_INSTANCE" ? [var.subnet_ids[0]] : var.subnet_ids
+#
+#  //  configuration {
+#  //    id       = aws_mq_configuration.rabbitmq.id
+#  //    revision = aws_mq_configuration.rabbitmq.latest_revision
+#  //  }
+#
+#  encryption_options {
+#    use_aws_owned_key = false
+#    kms_key_id        = data.aws_kms_key.key.arn
+#  }
+#
+#  user {
+#    username = data.aws_ssm_parameter.USER.value
+#    password = data.aws_ssm_parameter.PASS.value
+#  }
+#
+#}
 
-  //  configuration {
-  //    id       = aws_mq_configuration.rabbitmq.id
-  //    revision = aws_mq_configuration.rabbitmq.latest_revision
-  //  }
 
-  encryption_options {
-    use_aws_owned_key = false
-    kms_key_id        = data.aws_kms_key.key.arn
-  }
+resource "aws_spot_instance_request" "rabbitmq" {
+  ami                    = data.aws_ami.centos8.image_id
+  instance_type          = "t3.small"
+  subnet_id              = var.subnet_ids[0]
+  vpc_security_group_ids = [aws_security_group.rabbitmq.id]
+  wait_for_fulfillment   = true
+  user_data              = base64encode(templatefile("${path.module}/user-data.sh", { component = "rabbitmq", env = var.env }))
+  //iam_instance_profile   = aws_iam_instance_profile.profile.name
 
-  user {
-    username = data.aws_ssm_parameter.USER.value
-    password = data.aws_ssm_parameter.PASS.value
-  }
-
+  tags = merge(
+    local.common_tags,
+    { Name = "${var.env}-rabbitmq" }
+  )
 }
 
+resource "aws_route53_record" "rabbitmq" {
+  zone_id = "Z06114989XPI89CB5K4C"
+  name    = "rabbitmq-${var.env}.rajdevops.online"
+  type    = "A"
+  ttl     = 30
+  records = [aws_spot_instance_request.rabbitmq.private_ip]
+}
 
 
 
